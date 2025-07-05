@@ -50,7 +50,7 @@ FROM n8nio/n8n:1.38.1
 
 USER root
 
-RUN apt-get update && apt-get install -y git && \
+RUN apk add --no-cache git && \
     git clone https://github.com/Huynt-dev/n8n-nodes-multiprofile.git /home/node/.n8n/custom-nodes/n8n-nodes-multiprofile && \
     chown -R node:node /home/node/.n8n/custom-nodes
 
