@@ -3,13 +3,13 @@
 set -e
 
 if [[ $EUID -ne 0 ]]; then
-   echo "Script must be run as root" 
+   echo "❌ Script must be run as root"
    exit 1
 fi
 
 read -p "Enter your domain (must already point to this VPS): " DOMAIN
 
-# Check domain DNS
+# Kiểm tra domain
 SERVER_IP=$(curl -s https://api.ipify.org)
 DOMAIN_IP=$(dig +short "$DOMAIN" | tail -n1)
 if [[ "$SERVER_IP" != "$DOMAIN_IP" ]]; then
@@ -19,19 +19,28 @@ fi
 
 echo "✅ Domain is correctly pointed."
 
-# Install Docker + Compose Plugin
-apt update && apt install -y docker.io docker-compose-plugin curl git
+# ===============================
+# ✅ CÀI ĐẶT DOCKER + COMPOSE
+# ===============================
 
-# Prepare folders
+echo "🛠️ Installing Docker via get.docker.com script..."
+curl -fsSL https://get.docker.com | sh
+
+echo "🛠️ Installing docker compose plugin..."
+apt-get install -y docker-compose-plugin
+
+# ===============================
+# 📁 TẠO FOLDER & VOLUME
+# ===============================
+
 mkdir -p /home/n8n-data/.n8n
 mkdir -p /home/n8n-data/custom_nodes
 chown -R 1000:1000 /home/n8n-data
 
-# Optional: Clone custom node multiprofile if needed
-# Uncomment and replace with your real GitHub repo if available
-# git clone https://github.com/<your_user>/n8n-nodes-multiprofile.git /home/n8n-data/custom_nodes/n8n-nodes-multiprofile
+# ===============================
+# 🧾 TẠO FILE docker-compose.yml
+# ===============================
 
-# Create docker-compose.yml
 cat <<EOF > /home/n8n-data/docker-compose.yml
 version: '3'
 services:
@@ -81,14 +90,20 @@ volumes:
   caddy_config:
 EOF
 
-# Create Caddyfile
+# ===============================
+# 📄 TẠO FILE Caddyfile
+# ===============================
+
 cat <<EOF > /home/n8n-data/Caddyfile
 $DOMAIN {
     reverse_proxy n8n:5678
 }
 EOF
 
-# Run services
+# ===============================
+# 🚀 KHỞI ĐỘNG DỊCH VỤ
+# ===============================
+
 cd /home/n8n-data
 docker compose up -d
 
