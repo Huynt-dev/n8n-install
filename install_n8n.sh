@@ -8,6 +8,10 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 read -p "Enter your domain (must already point to this VPS): " DOMAIN
+if [[ -z "$DOMAIN" ]]; then
+  echo "❌ Domain cannot be empty. Please run the script again and enter a valid domain."
+  exit 1
+fi
 
 # Kiểm tra domain DNS
 SERVER_IP=$(curl -s https://api.ipify.org)
