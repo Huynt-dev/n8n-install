@@ -9,9 +9,10 @@ fi
 
 read -p "Enter your domain (must already point to this VPS): " DOMAIN
 
-# Check domain DNS
+# Kiểm tra domain DNS
 SERVER_IP=$(curl -s https://api.ipify.org)
 DOMAIN_IP=$(dig +short "$DOMAIN" | tail -n1)
+
 if [[ "$SERVER_IP" != "$DOMAIN_IP" ]]; then
   echo "❌ $DOMAIN is not pointing to this server (Expected: $SERVER_IP | Found: $DOMAIN_IP)"
   exit 1
@@ -19,9 +20,37 @@ fi
 
 echo "✅ Domain is correctly pointed."
 
-# Install Docker + Compose
-apt update && apt install -y docker.io docker-compose curl
+# Gỡ containerd nếu có (tránh conflict)
+apt-get remove -y containerd || true
 
+echo "🛠️ Installing Docker & Docker Compose..."
+
+# Cài gói phụ trợ
+apt-get update
+apt-get install -y \
+  ca-certificates \
+  curl \
+  gnupg \
+  lsb-release \
+  software-properties-common
+
+# Thêm GPG key của Docker
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+chmod a+r /etc/apt/keyrings/docker.gpg
+
+# Thêm repo Docker theo phiên bản Ubuntu
+UBUNTU_CODENAME=$(lsb_release -cs)
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+  https://download.docker.com/linux/ubuntu $UBUNTU_CODENAME stable" \
+  | tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# Cài Docker & Docker Compose plugin
+apt-get update
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+# Tạo thư mục n8n
 mkdir -p /home/n8n-data
 
 # docker-compose.yml
@@ -75,6 +104,9 @@ $DOMAIN {
 EOF
 
 cd /home/n8n-data
-docker-compose up -d
+docker compose up -d
 
-echo "🎉 Installed successfully! Visit: https://${DOMAIN}"
+echo ""
+echo "🎉 Installed successfully!"
+echo "🌐 Visit: https://${DOMAIN}"
+echo ""
