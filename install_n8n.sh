@@ -45,7 +45,7 @@ cat <<EOF > /home/n8n-data/docker-compose.yml
 version: '3.8'
 services:
   n8n:
-    image: n8nio/n8n:0.228.2
+    image: n8nio/n8n:1.38.1
     restart: always
     environment:
       - N8N_HOST=${DOMAIN}
