@@ -1,81 +1,60 @@
 #!/bin/bash
 
-# ✅ Yêu cầu root
+set -e
+
 if [[ $EUID -ne 0 ]]; then
-   echo "❌ Script cần được chạy với quyền root"
+   echo "Script must be run as root" 
    exit 1
 fi
 
-echo "🛠️ Cài đặt Docker + Docker Compose..."
-apt-get update
-apt-get install -y apt-transport-https ca-certificates curl software-properties-common
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
-add-apt-repository -y "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
-apt-get update
-apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose
+read -p "Enter your domain (must already point to this VPS): " DOMAIN
 
-echo "🌐 Nhập domain/subdomain bạn muốn dùng cho n8n:"
-read -p "🔹 Domain: " DOMAIN
-
-echo "🧱 Nhập tên profile (vd: team1, crm, analytics...):"
-read -p "🔹 Profile: " PROFILE
-
-# Kiểm tra DNS đã trỏ chưa
+# Check domain DNS
 SERVER_IP=$(curl -s https://api.ipify.org)
-DOMAIN_IP=$(dig +short "$DOMAIN")
-
-if [ "$DOMAIN_IP" != "$SERVER_IP" ]; then
-  echo "❌ Domain chưa trỏ đúng về VPS."
-  echo "💡 Trỏ domain $DOMAIN ➜ $SERVER_IP rồi chạy lại."
+DOMAIN_IP=$(dig +short "$DOMAIN" | tail -n1)
+if [[ "$SERVER_IP" != "$DOMAIN_IP" ]]; then
+  echo "❌ $DOMAIN is not pointing to this server (Expected: $SERVER_IP | Found: $DOMAIN_IP)"
   exit 1
 fi
 
-# Thư mục chứa cấu hình
-BASE_DIR="/opt/n8n_$PROFILE"
-mkdir -p $BASE_DIR/data
-mkdir -p $BASE_DIR/caddy
+echo "✅ Domain is correctly pointed."
 
-# ✅ Caddyfile
-cat <<EOF > $BASE_DIR/caddy/Caddyfile
-$DOMAIN {
-  reverse_proxy n8n_$PROFILE:5678
-}
-EOF
+# Install Docker + Compose
+apt update && apt install -y docker.io docker-compose curl
 
-# ✅ docker-compose.yml
-cat <<EOF > $BASE_DIR/docker-compose.yml
-version: "3"
+mkdir -p /home/n8n-data
 
+# docker-compose.yml
+cat <<EOF > /home/n8n-data/docker-compose.yml
+version: '3'
 services:
-  n8n_$PROFILE:
+  n8n:
     image: n8nio/n8n
     restart: always
     environment:
-      - N8N_HOST=$DOMAIN
+      - N8N_HOST=${DOMAIN}
       - N8N_PORT=5678
       - N8N_PROTOCOL=https
-      - WEBHOOK_URL=https://$DOMAIN
-      - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=admin
-      - N8N_BASIC_AUTH_PASSWORD=admin123
+      - WEBHOOK_URL=https://${DOMAIN}
+      - NODE_ENV=production
       - GENERIC_TIMEZONE=Asia/Ho_Chi_Minh
     volumes:
-      - $BASE_DIR/data:/home/node/.n8n
+      - /home/n8n-data:/home/node/.n8n
     networks:
       - n8n_net
 
-  caddy_$PROFILE:
+  caddy:
     image: caddy:2
     restart: always
     ports:
-      - "80"
-      - "443"
+      - "80:80"
+      - "443:443"
     volumes:
-      - $BASE_DIR/caddy/Caddyfile:/etc/caddy/Caddyfile
-      - caddy_data_$PROFILE:/data
-      - caddy_config_$PROFILE:/config
+      - /home/n8n-data/Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
     depends_on:
-      - n8n_$PROFILE
+      - n8n
     networks:
       - n8n_net
 
@@ -84,20 +63,18 @@ networks:
     driver: bridge
 
 volumes:
-  caddy_data_$PROFILE:
-  caddy_config_$PROFILE:
+  caddy_data:
+  caddy_config:
 EOF
 
-# ✅ Phân quyền
-chown -R 1000:1000 $BASE_DIR
-chmod -R 755 $BASE_DIR
+# Caddyfile
+cat <<EOF > /home/n8n-data/Caddyfile
+$DOMAIN {
+  reverse_proxy n8n:5678
+}
+EOF
 
-# ✅ Khởi động container
-cd $BASE_DIR
+cd /home/n8n-data
 docker-compose up -d
 
-echo ""
-echo "✅ Đã triển khai profile n8n: $PROFILE"
-echo "🌐 Truy cập: https://$DOMAIN"
-echo "🔐 Tài khoản: admin / admin123"
-echo ""
+echo "🎉 Installed successfully! Visit: https://${DOMAIN}"
