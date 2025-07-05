@@ -8,15 +8,10 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 read -p "Enter your domain (must already point to this VPS): " DOMAIN
-if [[ -z "$DOMAIN" ]]; then
-  echo "❌ Domain cannot be empty. Please run the script again and enter a valid domain."
-  exit 1
-fi
 
-# Kiểm tra domain DNS
+# Check domain DNS
 SERVER_IP=$(curl -s https://api.ipify.org)
 DOMAIN_IP=$(dig +short "$DOMAIN" | tail -n1)
-
 if [[ "$SERVER_IP" != "$DOMAIN_IP" ]]; then
   echo "❌ $DOMAIN is not pointing to this server (Expected: $SERVER_IP | Found: $DOMAIN_IP)"
   exit 1
@@ -24,60 +19,46 @@ fi
 
 echo "✅ Domain is correctly pointed."
 
-# Gỡ containerd nếu có (tránh conflict)
-apt-get remove -y containerd || true
+# Install Docker + Compose Plugin
+apt update && apt install -y docker.io docker-compose-plugin curl git
 
-echo "🛠️ Installing Docker & Docker Compose..."
+# Prepare folders
+mkdir -p /home/n8n-data/.n8n
+mkdir -p /home/n8n-data/custom_nodes
+chown -R 1000:1000 /home/n8n-data
 
-# Cài gói phụ trợ
-apt-get update
-apt-get install -y \
-  ca-certificates \
-  curl \
-  gnupg \
-  lsb-release \
-  software-properties-common
+# Optional: Clone custom node multiprofile if needed
+# Uncomment and replace with your real GitHub repo if available
+# git clone https://github.com/<your_user>/n8n-nodes-multiprofile.git /home/n8n-data/custom_nodes/n8n-nodes-multiprofile
 
-# Thêm GPG key của Docker
-install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-chmod a+r /etc/apt/keyrings/docker.gpg
-
-# Thêm repo Docker theo phiên bản Ubuntu
-UBUNTU_CODENAME=$(lsb_release -cs)
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-  https://download.docker.com/linux/ubuntu $UBUNTU_CODENAME stable" \
-  | tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-# Cài Docker & Docker Compose plugin
-apt-get update
-apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-
-# Tạo thư mục n8n
-mkdir -p /home/n8n-data
-
-# docker-compose.yml
+# Create docker-compose.yml
 cat <<EOF > /home/n8n-data/docker-compose.yml
 version: '3'
 services:
   n8n:
-    image: n8nio/n8n
+    image: n8nio/n8n:latest
+    container_name: n8n
     restart: always
     environment:
-      - N8N_HOST=${DOMAIN}
+      - N8N_HOST=$DOMAIN
       - N8N_PORT=5678
       - N8N_PROTOCOL=https
-      - WEBHOOK_URL=https://${DOMAIN}
+      - WEBHOOK_URL=https://$DOMAIN
       - NODE_ENV=production
       - GENERIC_TIMEZONE=Asia/Ho_Chi_Minh
+      - N8N_DISABLE_PRODUCTION_MAIN_PROCESS=true
     volumes:
-      - /home/n8n-data:/home/node/.n8n
+      - /home/n8n-data/.n8n:/home/node/.n8n
+      - /home/n8n-data/custom_nodes:/home/node/custom_nodes
+    working_dir: /home/node/.n8n
     networks:
       - n8n_net
+    command: >
+      /bin/sh -c "npm install /home/node/custom_nodes/* || true && n8n"
 
   caddy:
     image: caddy:2
+    container_name: caddy
     restart: always
     ports:
       - "80:80"
@@ -100,17 +81,16 @@ volumes:
   caddy_config:
 EOF
 
-# Caddyfile
+# Create Caddyfile
 cat <<EOF > /home/n8n-data/Caddyfile
 $DOMAIN {
-  reverse_proxy n8n:5678
+    reverse_proxy n8n:5678
 }
 EOF
 
+# Run services
 cd /home/n8n-data
 docker compose up -d
 
 echo ""
-echo "🎉 Installed successfully!"
-echo "🌐 Visit: https://${DOMAIN}"
-echo ""
+echo "🎉 Installed successfully! Visit: https://$DOMAIN"
