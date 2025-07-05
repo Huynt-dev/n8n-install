@@ -3,13 +3,13 @@
 set -e
 
 if [[ $EUID -ne 0 ]]; then
-   echo "❌ Script must be run as root"
+   echo "Script must be run as root"
    exit 1
 fi
 
 read -p "Enter your domain (must already point to this VPS): " DOMAIN
 
-# Kiểm tra domain
+# Check domain DNS
 SERVER_IP=$(curl -s https://api.ipify.org)
 DOMAIN_IP=$(dig +short "$DOMAIN" | tail -n1)
 if [[ "$SERVER_IP" != "$DOMAIN_IP" ]]; then
@@ -19,55 +19,50 @@ fi
 
 echo "✅ Domain is correctly pointed."
 
-# ===============================
-# ✅ CÀI ĐẶT DOCKER + COMPOSE
-# ===============================
+echo "▶️ Installing Docker & Compose..."
+apt-get update
+apt-get install -y ca-certificates curl gnupg lsb-release
 
-echo "🛠️ Installing Docker via get.docker.com script..."
-curl -fsSL https://get.docker.com | sh
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 
-echo "🛠️ Installing docker compose plugin..."
-apt-get install -y docker-compose-plugin
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-# ===============================
-# 📁 TẠO FOLDER & VOLUME
-# ===============================
+apt-get update
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-mkdir -p /home/n8n-data/.n8n
-mkdir -p /home/n8n-data/custom_nodes
+echo "✅ Docker installed."
+
+# Tạo thư mục và đặt quyền đúng
+mkdir -p /home/n8n-data
 chown -R 1000:1000 /home/n8n-data
+chmod -R 755 /home/n8n-data
 
-# ===============================
-# 🧾 TẠO FILE docker-compose.yml
-# ===============================
-
+# Ghi docker-compose.yml
 cat <<EOF > /home/n8n-data/docker-compose.yml
-version: '3'
+version: '3.8'
 services:
   n8n:
-    image: n8nio/n8n:latest
-    container_name: n8n
+    image: n8nio/n8n:0.228.2
     restart: always
     environment:
-      - N8N_HOST=$DOMAIN
+      - N8N_HOST=${DOMAIN}
       - N8N_PORT=5678
       - N8N_PROTOCOL=https
-      - WEBHOOK_URL=https://$DOMAIN
+      - WEBHOOK_URL=https://${DOMAIN}
       - NODE_ENV=production
       - GENERIC_TIMEZONE=Asia/Ho_Chi_Minh
-      - N8N_DISABLE_PRODUCTION_MAIN_PROCESS=true
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+    user: "1000:1000"
     volumes:
-      - /home/n8n-data/.n8n:/home/node/.n8n
-      - /home/n8n-data/custom_nodes:/home/node/custom_nodes
-    working_dir: /home/node/.n8n
+      - /home/n8n-data:/home/node/.n8n
     networks:
       - n8n_net
-    command: >
-      /bin/sh -c "npm install /home/node/custom_nodes/* || true && n8n"
 
   caddy:
     image: caddy:2
-    container_name: caddy
     restart: always
     ports:
       - "80:80"
@@ -90,22 +85,16 @@ volumes:
   caddy_config:
 EOF
 
-# ===============================
-# 📄 TẠO FILE Caddyfile
-# ===============================
-
+# Ghi Caddyfile
 cat <<EOF > /home/n8n-data/Caddyfile
-$DOMAIN {
-    reverse_proxy n8n:5678
+${DOMAIN} {
+  reverse_proxy n8n:5678
 }
 EOF
 
-# ===============================
-# 🚀 KHỞI ĐỘNG DỊCH VỤ
-# ===============================
-
+# Chạy
 cd /home/n8n-data
 docker compose up -d
 
 echo ""
-echo "🎉 Installed successfully! Visit: https://$DOMAIN"
+echo "🎉 Installed successfully! Visit: https://${DOMAIN}"
