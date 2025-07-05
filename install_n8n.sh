@@ -19,6 +19,8 @@ fi
 
 echo "✅ Domain is correctly pointed."
 
+read -p "Do you want to install n8n-nodes-multiprofile? (y/n): " INSTALL_MP
+
 echo "▶️ Installing Docker & Compose..."
 apt-get update
 apt-get install -y ca-certificates curl gnupg lsb-release
@@ -40,12 +42,38 @@ mkdir -p /home/n8n-data
 chown -R 1000:1000 /home/n8n-data
 chmod -R 755 /home/n8n-data
 
+# Nếu cài multiprofile thì tạo Dockerfile
+if [[ "$INSTALL_MP" == "y" || "$INSTALL_MP" == "Y" ]]; then
+  echo "▶️ Creating Dockerfile with multiprofile plugin..."
+  cat <<EODOCKER > /home/n8n-data/Dockerfile
+FROM n8nio/n8n:1.38.1
+
+USER root
+
+RUN apt-get update && apt-get install -y git && \
+    git clone https://github.com/Huynt-dev/n8n-nodes-multiprofile.git /home/node/.n8n/custom-nodes/n8n-nodes-multiprofile && \
+    chown -R node:node /home/node/.n8n/custom-nodes
+
+USER node
+EODOCKER
+fi
+
 # Ghi docker-compose.yml
+echo "▶️ Creating docker-compose.yml..."
+if [[ "$INSTALL_MP" == "y" || "$INSTALL_MP" == "Y" ]]; then
+  N8N_IMAGE_BLOCK="build:
+      context: .
+      dockerfile: Dockerfile
+    image: n8n-multiprofile:latest"
+else
+  N8N_IMAGE_BLOCK="image: n8nio/n8n:1.38.1"
+fi
+
 cat <<EOF > /home/n8n-data/docker-compose.yml
 version: '3.8'
 services:
   n8n:
-    image: n8nio/n8n:1.38.1
+    ${N8N_IMAGE_BLOCK}
     restart: always
     environment:
       - N8N_HOST=${DOMAIN}
@@ -92,8 +120,11 @@ ${DOMAIN} {
 }
 EOF
 
-# Chạy
+# Khởi chạy
 cd /home/n8n-data
+if [[ "$INSTALL_MP" == "y" || "$INSTALL_MP" == "Y" ]]; then
+  docker compose build --no-cache
+fi
 docker compose up -d
 
 echo ""
